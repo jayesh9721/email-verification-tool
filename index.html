@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Email Verifier – Enhanced</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-align: center; margin-top: 40px; background: #f5f5f5; }
+    #drop-zone {
+      border: 2px dashed #aaa;
+      padding: 40px;
+      width: 480px;
+      margin: auto;
+      background: #fff;
+      cursor: pointer;
+      border-radius: 12px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    #drop-zone:hover, #drop-zone.hover { border-color: #007aff; box-shadow: 0 0 0 4px rgba(0,122,255,0.15); }
+    .job-block {
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px auto;
+      width: 520px;
+      background: #fff;
+      text-align: left;
+      position: relative;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .progress-bar {
+      height: 20px;
+      background: linear-gradient(90deg, #4caf50, #66bb6a);
+      width: 0%;
+      transition: width 0.3s;
+      border-radius: 10px;
+    }
+    .progress-container {
+      background: #eee;
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+    .status { font-size: 13px; margin-top: 5px; color: #555; }
+    .log-line { font-size: 13px; margin-top: 3px; color: #333; font-family: 'Courier New', monospace; background: #f9f9f9; padding: 4px 8px; border-radius: 4px; word-break: break-all; }
+    .actions { margin-top: 12px; font-size: 13px; }
+    .actions a { color: #007aff; cursor: pointer; text-decoration: none; margin: 0 6px; }
+    .actions a:hover { text-decoration: underline; }
+    .close-job {
+      position: absolute;
+      top: 12px;
+      right: 16px;
+      font-size: 16px;
+      color: #999;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+    .close-job:hover { color: #e53935; }
+    .chart-wrap { display: none; margin: 14px 0 6px; }
+    .chart-row { display: flex; align-items: center; gap: 20px; }
+    .chart-legend { font-size: 12px; line-height: 2; }
+    .legend-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+    .dl-section { margin-top: 10px; padding: 10px 0 4px; border-top: 1px solid #eee; }
+    .dl-section strong { display: block; margin-bottom: 8px; font-size: 13px; }
+    footer {
+      margin-top: 40px;
+      font-size: 13px;
+      color: #777;
+    }
+    footer a { color: #333; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>📧 Upload Emails to Verify</h1>
+  <p style="color:#666;font-size:14px;margin-top:-10px;">MX fallback · SMTP pooling · pattern inference · confidence scoring</p>
+  <div id="drop-zone">Drop CSV here or click to upload</div>
+  <input type="file" id="file-input" accept=".csv" style="display:none;">
+  <div id="jobs"></div>
+
+  <footer>
+    This tool helps you find qualified leads. Now let's get you more sales with
+    <a href="https://www.alxberman.com/mastermind?utm_source=tools&utm_campaign=desktopverifier&utm_medium=footer" target="_blank">AB Mastermind</a>
+  </footer>
+
+  <script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const jobsContainer = document.getElementById('jobs');
+
+    let jobList = JSON.parse(localStorage.getItem('verifier-jobs-v2') || '[]');
+    jobList.forEach(({ job_id, fileName }) => createJobBlock(job_id, fileName));
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('hover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('hover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('hover');
+      handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+
+    function handleFile(file) {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      fetch('http://127.0.0.1:5050/verify', {
+        method: 'POST',
+        body: formData
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) { alert(data.error); return; }
+        const { job_id } = data;
+        jobList.push({ job_id, fileName: file.name });
+        localStorage.setItem('verifier-jobs-v2', JSON.stringify(jobList));
+        createJobBlock(job_id, file.name);
+      })
+      .catch(err => alert('Backend not reachable. Is verify-app.py running on port 5050?\n' + err));
+    }
+
+    function renderDonut(c, containerEl) {
+      const total = (c.safe||0)+(c.role_valid||0)+(c.catch_all||0)+(c.disposable||0)+(c.disabled||0)+(c.invalid||0)+(c.unknown||0);
+      if (total === 0) return;
+      containerEl.style.display = 'block';
+
+      const slices = [
+        { label: 'Safe (Valid)',  value: c.safe||0,       color: '#4caf50' },
+        { label: 'Role (Valid)',  value: c.role_valid||0,  color: '#8bc34a' },
+        { label: 'Accept All',    value: c.catch_all||0,   color: '#ffc107' },
+        { label: 'Disposable',    value: c.disposable||0,  color: '#ff9800' },
+        { label: 'Disabled',      value: c.disabled||0,    color: '#ff5722' },
+        { label: 'Invalid',       value: c.invalid||0,     color: '#f44336' },
+        { label: 'Unknown',       value: c.unknown||0,     color: '#9e9e9e' },
+      ].filter(s => s.value > 0);
+
+      const r = 52, cx = 64, cy = 64, strokeW = 22;
+      const circ = 2 * Math.PI * r;
+      let offset = 0;
+      let svgParts = `<svg width="128" height="128" viewBox="0 0 128 128">
+        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#eee" stroke-width="${strokeW}"/>`;
+      for (const s of slices) {
+        const dash = (s.value / total) * circ;
+        svgParts += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}"
+          stroke-width="${strokeW}" stroke-dasharray="${dash} ${circ - dash}"
+          stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})"/>`;
+        offset += dash;
+      }
+      svgParts += `<text x="${cx}" y="${cy - 7}" text-anchor="middle" font-size="10" fill="#888">total</text>
+        <text x="${cx}" y="${cy + 13}" text-anchor="middle" font-size="20" font-weight="700" fill="#222">${total}</text>
+        </svg>`;
+
+      const legend = slices.map(s =>
+        `<div><span class="legend-dot" style="background:${s.color}"></span>${s.label}: <strong>${s.value}</strong></div>`
+      ).join('');
+
+      containerEl.innerHTML = `<div class="chart-row"><div>${svgParts}</div><div class="chart-legend">${legend}</div></div>`;
+    }
+
+    function createJobBlock(job_id, fileName) {
+      const block = document.createElement('div');
+      block.className = 'job-block';
+      block.innerHTML = `
+        <div class="close-job" title="Remove job">✖</div>
+        <div><strong>${fileName}</strong></div>
+        <div class="progress-container"><div class="progress-bar"></div></div>
+        <div class="status">Starting...</div>
+        <div class="chart-wrap"></div>
+        <div class="log-line"></div>
+        <div class="actions"><a class="cancel">Cancel</a></div>
+      `;
+      jobsContainer.prepend(block);
+
+      const bar = block.querySelector('.progress-bar');
+      const status = block.querySelector('.status');
+      const chartWrap = block.querySelector('.chart-wrap');
+      const logLine = block.querySelector('.log-line');
+      const cancelBtn = block.querySelector('.cancel');
+      const actions = block.querySelector('.actions');
+      const closeBtn = block.querySelector('.close-job');
+
+      let canceled = false;
+      const removeJob = () => {
+        block.remove();
+        jobList = jobList.filter(j => j.job_id !== job_id);
+        localStorage.setItem('verifier-jobs-v2', JSON.stringify(jobList));
+      };
+
+      cancelBtn.onclick = () => {
+        canceled = true;
+        fetch(`http://127.0.0.1:5050/cancel?job_id=${job_id}`, { method: 'POST' });
+        status.innerText = `❌ Canceled job ${job_id}`;
+        actions.innerHTML = '';
+      };
+
+      closeBtn.onclick = () => {
+        fetch(`http://127.0.0.1:5050/cancel?job_id=${job_id}`, { method: 'POST' });
+        removeJob();
+      };
+
+      const poll = setInterval(() => {
+        if (canceled) return clearInterval(poll);
+
+        fetch(`http://127.0.0.1:5050/progress?job_id=${job_id}`)
+          .then(res => res.json())
+          .then(data => {
+            bar.style.width = `${data.percent}%`;
+            status.innerText = data.phase_detail || `${data.percent}% done – Row ${data.row} of ${data.total}`;
+            const c = data.categories || {};
+            renderDonut(c, chartWrap);
+          })
+          .catch(() => {});
+
+        fetch(`http://127.0.0.1:5050/log?job_id=${job_id}`)
+          .then(res => res.text())
+          .then(text => {
+            logLine.innerText = text.replace(/^\[\d+%\] \(\d+\/\d+\) /, '');
+          })
+          .catch(() => {});
+      }, 800);
+
+      const wait = setInterval(() => {
+        if (canceled) return clearInterval(wait);
+        fetch(`http://127.0.0.1:5050/progress?job_id=${job_id}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.percent >= 100) {
+              clearInterval(wait);
+              clearInterval(poll);
+              // Final chart render
+              renderDonut(data.categories || {}, chartWrap);
+              const cats = data.categories || {};
+              const totalRows = data.total || 0;
+              const notInvalidCount = (cats.safe||0)+(cats.role_valid||0)+(cats.catch_all||0)+(cats.disposable||0)+(cats.disabled||0)+(cats.unknown||0);
+              const btn = (type, label, count, bg, fg) => count > 0
+                ? `<a href="http://127.0.0.1:5050/download?job_id=${job_id}&type=${type}" target="_blank"
+                     style="padding:7px 14px;background:${bg};border-radius:8px;color:${fg};font-weight:600;text-decoration:none;font-size:12px;white-space:nowrap;border:1px solid rgba(0,0,0,0.07);">
+                     ${label}&nbsp;<span style="font-weight:400;opacity:0.8;">(${count})</span>
+                   </a>` : '';
+              actions.innerHTML = `
+                <div class="dl-section">
+                  <strong>⬇️ Download Results</strong>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                    ${btn('all',        'All Leads',    totalRows,                '#f0f0f0','#333')}
+                    ${btn('not_invalid','✅ Remaining', notInvalidCount,          '#e8f5e9','#2e7d32')}
+                    ${btn('safe',       '🟢 Safe',      cats.safe||0,             '#e8f5e9','#1b5e20')}
+                    ${btn('role_valid', '📋 Role Valid', cats.role_valid||0,      '#f1f8e9','#33691e')}
+                    ${btn('catch_all',  '🟡 Accept All', cats.catch_all||0,       '#fff8e1','#e65100')}
+                    ${btn('disabled',   '🔵 Disabled',  cats.disabled||0,         '#e3f2fd','#1565c0')}
+                    ${btn('unknown',    '⚪ Unknown',    cats.unknown||0,          '#fafafa','#555')}
+                    ${btn('invalid',    '❌ Invalid',    cats.invalid||0,          '#ffebee','#c62828')}
+                  </div>
+                </div>
+              `;
+            }
+          })
+          .catch(() => {});
+      }, 1500);
+    }
+  </script>
+</body>
+</html>
